@@ -2,6 +2,10 @@
 
 #include <cctype>
 #include <sstream>
+#include <math.h>
+#include <string>
+
+
 
 namespace miniplc0 {
 
@@ -75,6 +79,7 @@ namespace miniplc0 {
 				if (miniplc0::isspace(ch)) // 读到的字符是空白字符（空格、换行、制表符等）
 					current_state = DFAState::INITIAL_STATE; // 保留当前状态为初始状态，此处直接break也是可以的
 				else if (!miniplc0::isprint(ch)) // control codes and backspace
+					//isprint:看ch是否是可打印字符
 					invalid = true;
 				else if (miniplc0::isdigit(ch)) // 读到的字符是数字
 					current_state = DFAState::UNSIGNED_INTEGER_STATE; // 切换到无符号整数的状态
@@ -87,18 +92,35 @@ namespace miniplc0 {
 						break;
 					case '-':
 						// 请填空：切换到减号的状态
+                        current_state = DFAState::MINUS_SIGN_STATE;
+                            break;
 					case '+':
 						// 请填空：切换到加号的状态
+                        current_state = DFAState::PLUS_SIGN_STATE;
+                            break;
 					case '*':
 						// 请填空：切换状态
+                        current_state = DFAState ::MULTIPLICATION_SIGN_STATE;
+                            break;
 					case '/':
 						// 请填空：切换状态
-
+                        current_state = DFAState ::DIVISION_SIGN_STATE;
+                            break;
 					///// 请填空：
 					///// 对于其他的可接受字符
 					///// 切换到对应的状态
-
+					case ';':
+					    current_state = DFAState ::SEMICOLON_STATE;
+                            break;
+                        case '(':
+                            current_state = DFAState ::LEFTBRACKET_STATE;
+                            break;
+                        case ')':
+                            current_state = DFAState :: RIGHTBRACKET_STATE;
+							break;
 					// 不接受的字符导致的不合法的状态
+					        //todo:thinking:是否有必要在状态内定义不接受字符的处理？--必要
+
 					default:
 						invalid = true;
 						break;
@@ -112,7 +134,7 @@ namespace miniplc0 {
 					// 回退这个字符
 					unreadLast();
 					// 返回编译错误：非法的输入
-					return std::make_pair(std::optional<Token>(), std::make_optional<CompilationError>(pos, ErrorCode::ErrInvalidInput));
+					return std::make_pair(std::optional<Token>(), std::make_optional<CompilationError>(currentPos(), ErrorCode::ErrInvalidInput));
 				}
 				// 如果读到的字符导致了状态的转移，说明它是一个token的第一个字符
 				if (current_state != DFAState::INITIAL_STATE) // ignore white spaces
@@ -123,39 +145,192 @@ namespace miniplc0 {
 								// 当前状态是无符号整数
 			case UNSIGNED_INTEGER_STATE: {
 				// 请填空：
-				// 如果当前已经读到了文件尾，则解析已经读到的字符串为整数
-				//     解析成功则返回无符号整数类型的token，否则返回编译错误
-				// 如果读到的字符是数字，则存储读到的字符
-				// 如果读到的是字母，则存储读到的字符，并切换状态到标识符
-				// 如果读到的字符不是上述情况之一，则回退读到的字符，并解析已经读到的字符串为整数
-				//     解析成功则返回无符号整数类型的token，否则返回编译错误
-				break;
+                if (!current_char.has_value())
+                    // 如果当前已经读到了文件尾，则解析已经读到的字符串为整数
+                    //此处注意，我们需要判断这时的整数字符串有没有超出限定的范围
+                	//这里有一个很骚的操作，一堆前导零虐爆quq
+                {
+                	std::string tmp,maxnum;
+					int num;
+                	maxnum="2147483647";
+                	ss >> tmp;
+                	//去除前导零
+					if(tmp[0]=='0'){
+						//也就是说全部都是0
+						if(tmp.find_first_not_of('0')==std::string::npos){
+							tmp="0";
+							break;
+						} else{
+							tmp.erase(0,tmp.find_first_not_of('0'));
+						}
+					}
+                    if(tmp.size()>=10){
+                    	if(tmp.size()==10){
+                    		if(tmp.compare(maxnum)>0){
+								return std::make_pair(std::optional<Token>(), std::make_optional<CompilationError>(currentPos(), ErrIntegerOverflow));
+                    		}
+                    	} else{
+							return std::make_pair(std::optional<Token>(), std::make_optional<CompilationError>(currentPos(), ErrIntegerOverflow));
+                    	}
+                    }
+
+                    num = std::atoi(tmp.c_str());
+                    return std::make_pair(std::make_optional<Token>(TokenType :: UNSIGNED_INTEGER, num, pos, currentPos()),std::optional<CompilationError>());
+                }
+                // 获取读到的字符的值，注意auto推导出的类型是char
+                auto ch = current_char.value();
+                // 标记是否读到了不合法的字符，初始化为否
+                auto invalid = false;
+
+                //如果读到的字符是数字，则存储读到的字符
+                if(miniplc0::isdigit(ch)){
+                    ss<<ch;
+                } else if(miniplc0::isalpha(ch)){
+                    //如果读到的是字母，则存储读到的字符，并切换状态到标识符
+                    //这里之所以要转换到标识符，是因为要方便错位处理
+                        //当切换到标识符号后，会继续读入字符，之后通过判断将其设置成一个无效的标志符
+                    //PS：助教奇怪的意图，不仔细联系指导书和代码真没看出来
+                    ss<<ch;
+                    current_state = DFAState ::IDENTIFIER_STATE;
+                } else if(ch=='+'||ch=='-'||ch=='/'||ch=='*'||ch==';'||ch=='('||ch==')'||ch=='='||isspace(ch)){
+                    // 如果读到的字符是上述情况之一，则回退读到的字符，并解析已经读到的字符串为整数
+                    unreadLast();
+					std::string tmp,maxnum;
+					int num;
+					maxnum="2147483647";
+					ss >> tmp;
+					if(tmp[0]=='0'){
+						//也就是说全部都是0
+						if(tmp.find_first_not_of('0')==std::string::npos){
+							tmp="0";
+							break;
+						} else{
+							tmp.erase(0,tmp.find_first_not_of('0'));
+						}
+					}
+					if(tmp.size()>=10){
+						if(tmp.size()==10){
+							if(tmp.compare(maxnum)>0){
+								return std::make_pair(std::optional<Token>(), std::make_optional<CompilationError>(currentPos(), ErrIntegerOverflow));
+							}
+						} else{
+							return std::make_pair(std::optional<Token>(), std::make_optional<CompilationError>(currentPos(), ErrIntegerOverflow));
+						}
+					}
+
+					num = std::atoi(tmp.c_str());
+					return std::make_pair(std::make_optional<Token>(TokenType :: UNSIGNED_INTEGER, num, pos, currentPos()),std::optional<CompilationError>());
+                } else{
+                    //输入了不合法字符
+					unreadLast();
+                    return std::make_pair(std::optional<Token>(), std::make_optional<CompilationError>(currentPos(), ErrorCode::ErrInvalidInput));
+                }
+                break;
 			}
 			case IDENTIFIER_STATE: {
 				// 请填空：
-				// 如果当前已经读到了文件尾，则解析已经读到的字符串
-				//     如果解析结果是关键字，那么返回对应关键字的token，否则返回标识符的token
-				// 如果读到的是字符或字母，则存储读到的字符
-				// 如果读到的字符不是上述情况之一，则回退读到的字符，并解析已经读到的字符串
-				//     如果解析结果是关键字，那么返回对应关键字的token，否则返回标识符的token
-				break;
+
+                if (!current_char.has_value())
+                    // 如果当前已经读到了文件尾，则解析已经读到的字符串
+                    //     如果解析结果是关键字，那么返回对应关键字的token，否则返回标识符的token
+                {
+                   std:: string s;
+                   ss >> s;
+                   if(miniplc0::isdigit(s[0])){
+                       return std::make_pair(std::optional<Token>(),std::make_optional<CompilationError>(currentPos(),ErrInvalidIdentifier));
+                   }
+
+                   if(s=="begin"){
+                       return std::make_pair(std::make_optional<Token>(TokenType::BEGIN,s, pos, currentPos()),std::optional<CompilationError>());
+                   } else if(s=="end"){
+					   return std::make_pair(std::make_optional<Token>(TokenType::END,s, pos, currentPos()),std::optional<CompilationError>());
+                   } else if(s=="const"){
+					   return std::make_pair(std::make_optional<Token>(TokenType::CONST,s, pos, currentPos()),std::optional<CompilationError>());
+                   } else if(s=="var"){
+					   return std::make_pair(std::make_optional<Token>(TokenType::VAR,s, pos, currentPos()),std::optional<CompilationError>());
+                   } else if(s=="print"){
+					   return std::make_pair(std::make_optional<Token>(TokenType::PRINT,s, pos, currentPos()),std::optional<CompilationError>());
+                   } else{
+                       //返回标识符
+					   return std::make_pair(std::make_optional<Token>(TokenType::IDENTIFIER,s, pos, currentPos()),std::optional<CompilationError>());
+                   }
+                }
+
+                auto ch = current_char.value();
+                auto invalid = false;
+                // 如果读到的是字符或字母，则存储读到的字符
+                if(miniplc0::isdigit(ch)||miniplc0::isalpha(ch)){
+                    ss<<ch;
+                } else{
+                    // 如果读到的字符不是上述情况之一，则回退读到的字符，并解析已经读到的字符串
+                    //     如果解析结果是关键字，那么返回对应关键字的token，否则返回标识符的token
+                    unreadLast();
+                    std:: string s;
+                    ss >> s;
+                    if(miniplc0::isdigit(s[0])){
+						return std::make_pair(std::optional<Token>(),std::make_optional<CompilationError>(currentPos(),ErrInvalidIdentifier));
+                    }
+
+					if(s=="begin"){
+						return std::make_pair(std::make_optional<Token>(TokenType::BEGIN,s, pos, currentPos()),std::optional<CompilationError>());
+					} else if(s=="end"){
+						return std::make_pair(std::make_optional<Token>(TokenType::END,s, pos, currentPos()),std::optional<CompilationError>());
+					} else if(s=="const"){
+						return std::make_pair(std::make_optional<Token>(TokenType::CONST,s, pos, currentPos()),std::optional<CompilationError>());
+					} else if(s=="var"){
+						return std::make_pair(std::make_optional<Token>(TokenType::VAR,s, pos, currentPos()),std::optional<CompilationError>());
+					} else if(s=="print"){
+						return std::make_pair(std::make_optional<Token>(TokenType::PRINT,s, pos, currentPos()),std::optional<CompilationError>());
+					} else{
+						//返回标识符
+						return std::make_pair(std::make_optional<Token>(TokenType::IDENTIFIER,s, pos, currentPos()),std::optional<CompilationError>());
+					}
+                }
+                break;
 			}
 
-								   // 如果当前状态是加号
+            // 如果当前状态是加号
 			case PLUS_SIGN_STATE: {
 				// 请思考这里为什么要回退，在其他地方会不会需要
+                //thinking:因为当 当前状态是加号并进入当前case 时，说明上一个读入的字符是'+'，而当前读入的字符不在这个状态中判断，所以回退
 				unreadLast(); // Yes, we unread last char even if it's an EOF.
 				return std::make_pair(std::make_optional<Token>(TokenType::PLUS_SIGN, '+', pos, currentPos()), std::optional<CompilationError>());
 			}
-								  // 当前状态为减号的状态
+			// 当前状态为减号的状态
 			case MINUS_SIGN_STATE: {
 				// 请填空：回退，并返回减号token
+                unreadLast(); // Yes, we unread last char even if it's an EOF.
+                return std::make_pair(std::make_optional<Token>(TokenType::MINUS_SIGN, '-', pos, currentPos()), std::optional<CompilationError>());
 			}
 
-								   // 请填空：
-								   // 对于其他的合法状态，进行合适的操作
-								   // 比如进行解析、返回token、返回编译错误
+            // 请填空：
+            // 对于其他的合法状态，进行合适的操作
+			// 比如进行解析、返回token、返回编译错误
 
+                case DIVISION_SIGN_STATE: {
+                    unreadLast();
+                    return std::make_pair(std::make_optional<Token>(TokenType::DIVISION_SIGN, '/', pos, currentPos()), std::optional<CompilationError>());
+                }
+                case MULTIPLICATION_SIGN_STATE: {
+                    unreadLast();
+                    return std::make_pair(std::make_optional<Token>(TokenType::MULTIPLICATION_SIGN, '*', pos, currentPos()), std::optional<CompilationError>());
+                }
+                case EQUAL_SIGN_STATE: {
+                    unreadLast();
+                    return std::make_pair(std::make_optional<Token>(TokenType::EQUAL_SIGN, '=', pos, currentPos()), std::optional<CompilationError>());
+                }
+                case SEMICOLON_STATE: {
+                    unreadLast();
+                    return std::make_pair(std::make_optional<Token>(TokenType::SEMICOLON, ';', pos, currentPos()), std::optional<CompilationError>());
+                }
+                case LEFTBRACKET_STATE: {
+                    unreadLast();
+                    return std::make_pair(std::make_optional<Token>(TokenType::LEFT_BRACKET, '(', pos, currentPos()), std::optional<CompilationError>());
+                }
+                case RIGHTBRACKET_STATE: {
+                    unreadLast();
+                    return std::make_pair(std::make_optional<Token>(TokenType::RIGHT_BRACKET, ')', pos, currentPos()), std::optional<CompilationError>());
+                }
 								   // 预料之外的状态，如果执行到了这里，说明程序异常
 			default:
 				DieAndPrint("unhandled state.");
